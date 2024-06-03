@@ -223,9 +223,6 @@ msgstr "你的探险活动必须至少有20个字符。"
 msgid "adventure_name_invalid"
 msgstr "这个探险活动的用户名是无效的。"
 
-msgid "adventure_prompt"
-msgstr "请输入探险的名字"
-
 msgid "adventure_terms"
 msgstr "我同意我的冒险可以在海蒂上公开。"
 
@@ -2161,4 +2158,7 @@ msgstr "你的程序"
 
 #~ msgid "variables"
 #~ msgstr "变量"
+
+#~ msgid "adventure_prompt"
+#~ msgstr "请输入探险的名字"
 

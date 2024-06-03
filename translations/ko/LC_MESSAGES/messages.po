@@ -289,10 +289,6 @@ msgid "adventure_name_invalid"
 msgstr "모험 이름이 잘못되었습니다."
 
 #, fuzzy
-msgid "adventure_prompt"
-msgstr "모험의 이름을 입력하십시오"
-
-#, fuzzy
 msgid "adventure_terms"
 msgstr "나는 내 모험이 Hedy에서 공유 되는 것에 동의합니다."
 
@@ -2683,4 +2679,7 @@ msgstr "Your program"
 
 #~ msgid "variables"
 #~ msgstr "Variables"
+
+#~ msgid "adventure_prompt"
+#~ msgstr "모험의 이름을 입력하십시오"
 

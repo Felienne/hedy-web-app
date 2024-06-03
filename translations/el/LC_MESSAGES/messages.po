@@ -264,9 +264,6 @@ msgstr "Η περιπέτειά σου πρέπει να είναι τουλάχ
 msgid "adventure_name_invalid"
 msgstr "Αυτό το όνομα περιπέτειας δεν είναι έγκυρο"
 
-msgid "adventure_prompt"
-msgstr "Παρακαλώ δώσε το όνομα της περιπέτειας"
-
 msgid "adventure_terms"
 msgstr "Συμφωνώ ότι η περιπέτειά μου μπορεί να γίνει δημόσια διαθέσιμη στο Hedy."
 
@@ -2509,4 +2506,7 @@ msgstr "Your program"
 
 #~ msgid "variables"
 #~ msgstr "Variables"
+
+#~ msgid "adventure_prompt"
+#~ msgstr "Παρακαλώ δώσε το όνομα της περιπέτειας"
 

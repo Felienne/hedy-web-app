@@ -235,9 +235,6 @@ msgstr "Jouw avontuur moet minimaal 20 karakters zijn."
 msgid "adventure_name_invalid"
 msgstr "Deze avontuur naam is ongeldig."
 
-msgid "adventure_prompt"
-msgstr "Geef je nieuwe avontuur een naam"
-
 msgid "adventure_terms"
 msgstr "Ik ga ermee akkoord dat mijn avontuur mogelijk beschikbaar komt op Hedy."
 
@@ -2206,4 +2203,7 @@ msgstr "Jouw programma"
 
 #~ msgid "variables"
 #~ msgstr "Variabelen"
+
+#~ msgid "adventure_prompt"
+#~ msgstr "Geef je nieuwe avontuur een naam"
 

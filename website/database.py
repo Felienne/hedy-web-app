@@ -54,6 +54,9 @@ CLASSES = dynamo.Table(storage, "classes", "id", indexes=[
 ADVENTURES = dynamo.Table(storage, "adventures", "id", indexes=[
                           dynamo.Index("creator"), dynamo.Index("public"),
                           dynamo.Index("name", sort_key="creator", index_name="name-creator-index")])
+PUBLIC_ADVENTURE_INDEXES = dynamo.Table(storage, "public-adventure-indexes",
+                                        "field_value", sort_key="date_adventure_id")
+PUBLIC_ADVENTURE_FILTERS = dynamo.Table(storage, "public-adventure-filters", "field", sort_key="value")
 INVITATIONS = dynamo.Table(
     storage, "invitations", partition_key="username#class_id",
     indexes=[dynamo.Index("username"), dynamo.Index("class_id")],
@@ -574,18 +577,93 @@ class Database:
         keys = {id: {"id": id} for id in adventure_ids}
         return ADVENTURES.batch_get(keys) if keys else {}
 
-    def get_public_adventures(self):
-        return ADVENTURES.get_many({"public": 1})
+    def get_public_adventure_filters(self):
+        """Retrieve public adventure filters; i.e., tags, languages, and levels."""
+        filters = {}
+        for record in PUBLIC_ADVENTURE_FILTERS.scan():
+            if record.get("field") == "tag":
+                filters["tag"] = filters.get("tag", [])
+                filters["tag"].append(record.get("value"))
+            else:
+                lang, level = record.get("value").split("_")
+                filters["lang"] = filters.get("lang", [])
+                filters["lang"].append(lang)
+                filters["level"] = filters.get("level", [])
+                filters["level"].append(level)
+        return set(filters["level"]), set(filters["lang"]), set(filters["tag"])
 
-    def delete_adventure(self, adventure_id):
-        ADVENTURES.delete({"id": adventure_id})
+    def update_public_adventure_filters_indexes(self, adventure):
+        """This function adds/updates filters and indexes that we use to retrieve public adventures."""
+        if not adventure.get("public"):
+            return
+        id = adventure.get("id")
+        date = adventure.get("date")
+        lang_value = adventure.get("language", "en")
+        PUBLIC_ADVENTURE_INDEXES.put({"field_value": f"lang_{lang_value}", "date_adventure_id": f"{date}_{id}"})
+
+        levels = adventure.get("levels")
+        if not levels:
+            levels = [adventure.get("level")]
+        for level in levels:
+            PUBLIC_ADVENTURE_INDEXES.put({"field_value": f"level_{level}", "date_adventure_id": f"{date}_{id}"})
+            value = f"{lang_value}_{level}"
+            PUBLIC_ADVENTURE_FILTERS.put({"field": "lang_level", "value": value})
+        tags = adventure.get("tags", [])
+        for tag in tags:
+            PUBLIC_ADVENTURE_INDEXES.put({"field_value": f"tag_{tag}", "date_adventure_id": f"{date}_{id}"})
+            PUBLIC_ADVENTURE_FILTERS.put({"field": "tag", "value": tag})
+
+    def remove_public_adventure_filters(self, field, value):
+        PUBLIC_ADVENTURE_FILTERS.delete({"field": field, "value": value})
+
+    def remove_public_adventure_indexes(self, field, value, adventure):
+        PUBLIC_ADVENTURE_INDEXES.delete({"field_value": f"{field}_{value}",
+                                         "date_adventure_id": f"{adventure['date']}_{adventure['id']}"})
+
+    def get_public_adventures(self, level, language, tags, pagination_token=None, limit=20):
+        """This function returns adventures for given indexes, paginated.
+        E.g., key={"field_value": "level_lang_1_en", "date_adventure_id": "..."}"""
+
+        # Helper function to get indexes and extract adventure IDs from its records.
+        def retrieve_and_extract_ids(key):
+            result = PUBLIC_ADVENTURE_INDEXES.get_page(key, limit=limit, pagination_token=pagination_token)
+            retrieved_ids = set([record["date_adventure_id"].split("_")[1] for record in result])
+            return retrieved_ids, result
+
+        # Prepare fields and fetch adventure IDs.
+        field_level_lang = {"field_value": f"level_lang_{level}_{language}" if language else f"level_{level}"}
+        level_lang_adventure_ids, result = retrieve_and_extract_ids(field_level_lang)
+
+        tag_adventure_ids = set()
+        for _t in tags:
+            tag_adv_ids, _ = retrieve_and_extract_ids({"field_value": f"tag_{_t}"})
+            tag_adventure_ids.update(tag_adv_ids)
+
+        # Combine all adventure IDs.
+        adventure_ids = level_lang_adventure_ids.intersection(
+            tag_adventure_ids) if tag_adventure_ids else level_lang_adventure_ids
+
+        # Fetch and return all adventures batched.
+        return self.batch_get_adventures(adventure_ids), result.prev_page_token, result.next_page_token
+
+    def delete_adventure(self, adventure):
+        ADVENTURES.delete({"id": adventure.get("id")})
+        lang = adventure.get("language", "")
+        for level in adventure.get("levels", []):
+            self.remove_public_adventure_filters("lang#level", f"{lang}#{level}")
+            self.remove_public_adventure_indexes("level", level, adventure)
+        self.remove_public_adventure_indexes("lang", adventure.get("language"), adventure)
 
     def store_adventure(self, adventure):
         """Store an adventure."""
         ADVENTURES.create(adventure)
+        self.update_public_adventure_filters_indexes(adventure)
 
     def update_adventure(self, adventure_id, adventure):
+        if "id" in adventure:
+            del adventure["id"]
         ADVENTURES.update({"id": adventure_id}, adventure)
+        self.update_public_adventure_filters_indexes(adventure)
 
     def create_tag(self, data):
         return TAGS.create(data)

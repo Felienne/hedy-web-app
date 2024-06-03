@@ -247,9 +247,6 @@ msgstr "Maceranız en az 20 karakterden oluşmalıdır."
 msgid "adventure_name_invalid"
 msgstr "Bu macera ismi geçersiz."
 
-msgid "adventure_prompt"
-msgstr "Lütfen maceranın ismini girin"
-
 msgid "adventure_terms"
 msgstr "Maceramın Hedy'de herkese açık hale getirilebileceğini kabul ediyorum."
 
@@ -2267,4 +2264,7 @@ msgstr "Programınız"
 
 #~ msgid "variables"
 #~ msgstr "Değişkenler"
+
+#~ msgid "adventure_prompt"
+#~ msgstr "Lütfen maceranın ismini girin"
 

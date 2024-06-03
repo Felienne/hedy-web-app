@@ -5,6 +5,7 @@ let levelSelect: HTMLElement;
 let languageSelect: HTMLElement;
 let tagsSelect: HTMLElement;
 let searchInput: HTMLInputElement;
+let nextPage: HTMLElement;
 
 function initializeVariables() {
     // Get and initialize needed variables
@@ -12,9 +13,13 @@ function initializeVariables() {
     languageSelect = document.getElementById("language-select") as HTMLElement;
     tagsSelect = document.getElementById("tag-select") as HTMLElement;
     searchInput = document.getElementById('search_adventure') as HTMLInputElement;
+    nextPage = document.getElementById('next_page_token') as HTMLInputElement;
 }
 
-document.addEventListener("DOMContentLoaded", prepareDropdowns);
+document.addEventListener("DOMContentLoaded", () => {
+    prepareDropdowns();
+    initializeVariables();
+});
 
 function prepareDropdowns() {
     const options = document.querySelectorAll('.option');
@@ -102,6 +107,7 @@ function updateURL() {
     const level = levelSelect.getAttribute("data-value") || "";
     const lanugage = languageSelect.getAttribute("data-value") || "";
     const tags = tagsSelect.getAttribute("data-value") || "";
+    const nextPageToken = nextPage?.getAttribute("data-value") || "";
 
     urlParams.set('level', level)
     urlParams.set('lang', lanugage)
@@ -109,20 +115,26 @@ function updateURL() {
     if (searchInput) {
         urlParams.set('search', searchInput.value)
     }
+    if (nextPageToken) {
+        urlParams.set('page', nextPageToken)
+    }
     window.history.pushState({}, '', `${window.location.pathname}?${urlParams.toString()}`);
 
 }
 
 
 document.addEventListener("updateTSCode", (e: any) => {
-    setTimeout(() => {
-        initializeVariables();
-        const js = e.detail;
-    
-        updateURL();
-        prepareDropdowns();
-        initialize({lang: js.lang, level: parseInt(js.level), keyword_language: js.lang,
-            javascriptPageOptions: js
-            });
-    }, 1000);
+    initializeVariables();
+    const js = e.detail;
+
+    updateURL();
+    prepareDropdowns();
+    initialize({lang: js.lang, level: parseInt(js.level), keyword_language: js.lang,
+        javascriptPageOptions: js
+        });
+})
+
+document.addEventListener("htmx:configRequest", (ev) => {
+    const event = ev as any;
+    event.detail.headers["search-value"] = searchInput.value;
 })

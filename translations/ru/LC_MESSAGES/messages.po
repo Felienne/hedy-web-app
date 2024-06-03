@@ -247,9 +247,6 @@ msgstr "Название приключения должно состоять и
 msgid "adventure_name_invalid"
 msgstr "Название приключения неверно."
 
-msgid "adventure_prompt"
-msgstr "Пожалуйста введите название приключения"
-
 msgid "adventure_terms"
 msgstr "Я соглашаюсь с тем, что моё приключение будет доступно всем на сайте Хеди."
 
@@ -2316,4 +2313,7 @@ msgstr "Ваша программа"
 
 #~ msgid "variables"
 #~ msgstr "Переменные"
+
+#~ msgid "adventure_prompt"
+#~ msgstr "Пожалуйста введите название приключения"
 

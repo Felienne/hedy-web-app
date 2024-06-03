@@ -245,9 +245,6 @@ msgstr "Ditt äventyr måste ha minst 20 tecken."
 msgid "adventure_name_invalid"
 msgstr "Äventyrsnamnet är ogiltigt."
 
-msgid "adventure_prompt"
-msgstr "Mata in äventyrets namn"
-
 msgid "adventure_terms"
 msgstr "Jag samtycker till att mitt äventyr kan göras tillgängligt för allmänheten på Hedy."
 
@@ -2295,4 +2292,7 @@ msgstr "Ditt program"
 
 #~ msgid "variables"
 #~ msgstr "Variabler"
+
+#~ msgid "adventure_prompt"
+#~ msgstr "Mata in äventyrets namn"
 

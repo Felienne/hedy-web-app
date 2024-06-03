@@ -245,9 +245,6 @@ msgstr "L'aventura ha de contenir com a mínim 20 caràcters."
 msgid "adventure_name_invalid"
 msgstr "El nom d'aventura no és vàlid."
 
-msgid "adventure_prompt"
-msgstr "Si us plau, introdueix el nom de l'aventura"
-
 msgid "adventure_terms"
 msgstr "Estic d'acord amb el fet que la meva aventura estigui disponible públicament a Hedy."
 
@@ -2423,4 +2420,7 @@ msgstr "El teu programa"
 
 #~ msgid "variables"
 #~ msgstr "Variables"
+
+#~ msgid "adventure_prompt"
+#~ msgstr "Si us plau, introdueix el nom de l'aventura"
 
