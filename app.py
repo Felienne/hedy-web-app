@@ -85,6 +85,26 @@ app.json = JinjaCompatibleJsonProvider(app)
 # Use 5 minutes as a reasonable default for all files we load elsewise.
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = datetime.timedelta(minutes=5)
 
+# We're adding a new URL rule for getting the static files from the server. If we don't do this
+# when using a subdomain getting them will fail.
+for rule in app.url_map.iter_rules('static'):
+    app.url_map._rules.remove(rule)
+app.url_map._rules_by_endpoint['static'] = []
+app.view_functions["static"] = None
+app.static_folder = 'static'
+app.add_url_rule('/<path:filename>',
+                 endpoint='static',
+                 subdomain="<language>",
+                 view_func=app.send_static_file)
+
+
+@app.url_value_preprocessor
+def before_route(endpoint, values):
+    if values is not None and endpoint == 'static':
+        values.pop('language', None)
+    if values is not None:
+        setup_language(language=values.get('language', None))
+
 
 def get_locale():
     return session.get("lang", request.accept_languages.best_match(ALL_LANGUAGES.keys(), 'en'))
@@ -435,7 +455,7 @@ if utils.is_heroku():
     app.config.update(
         SESSION_COOKIE_SECURE=True,
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_SAMESITE='Strict',
     )
 
 # Set security attributes for cookies in a central place - but not when
@@ -458,13 +478,18 @@ else:
 
 
 @app.before_request
-def setup_language():
+def setup_language(language=None):
     # Determine the user's requested language code.
     #
     # If not in the request parameters, use the browser's accept-languages
     # header to do language negotiation. Can be changed in the session by
     # POSTing to `/change_language`, and be overwritten by remember_current_user().
-    if lang_from_request := request.args.get('language', None):
+    if language:
+        session['lang'] = get_correct_lang_key(language)
+    elif request.url_rule is not None and request.url_rule.subdomain not in ['<language>', '']:
+        lang_from_subdomain = get_correct_lang_key(request.url_rule.subdomain)
+        session['lang'] = lang_from_subdomain
+    elif lang_from_request := request.args.get('language', None):
         session['lang'] = lang_from_request
     if 'lang' not in session:
         session['lang'] = request.accept_languages.best_match(
@@ -472,13 +497,12 @@ def setup_language():
     g.lang = session['lang']
     querylog.log_value(lang=session['lang'])
 
-    if 'keyword_lang' not in session:
+    if 'keyword_lang' not in session or session['keyword_lang'] not in ('en', g.lang):
         session['keyword_lang'] = g.lang if g.lang in ALL_KEYWORD_LANGUAGES.keys() else 'en'
     # If there is a '?keyword_language=' parameter, it overrides the current keyword lang, permanently
     if request.args.get('keyword_language', None):
         session['keyword_lang'] = request.args.get('keyword_language', None)
     g.keyword_lang = session['keyword_lang']
-
     # Set the page direction -> automatically set it to "left-to-right"
     # Switch to "right-to-left" if one of the language is rtl according to Locale (from Babel) settings.
     # This is the only place to expand / shrink the list of RTL languages ->
@@ -491,6 +515,23 @@ def setup_language():
     # Check that requested language is supported, otherwise return 404
     if g.lang not in ALL_LANGUAGES.keys():
         return make_response(gettext("request_invalid"), 404)
+
+# When languages come from the subdomain, they do in lowercase,
+# but the keys are partially in uppercase sometimes
+
+
+def get_correct_lang_key(language: str):
+    index = language.find('_')
+    if index != -1:
+        if language in ["zh_hans", "zh_hant"]:
+            first_part = language[0:index]
+            second_part = language[index + 1].upper()
+            third_part = language[index + 2:]
+            return f'{first_part}_{second_part}{third_part}'
+        else:
+            return f'{language[0:index]}{language[index:].upper()}'
+    else:
+        return language
 
 
 if utils.is_heroku() and not os.getenv('HEROKU_RELEASE_CREATED_AT'):
@@ -532,7 +573,7 @@ def add_hx_detection():
 
 
 @app.after_request
-def set_security_headers(response):
+def set_security_headers(response: Response):
     security_headers = {
         'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
         'X-XSS-Protection': '1; mode=block',
@@ -540,6 +581,7 @@ def set_security_headers(response):
     # Not X-Frame-Options on purpose -- we are being embedded by Online Masters
     # and that's okay.
     response.headers.update(security_headers)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return response
 
 
@@ -557,23 +599,26 @@ if os.getenv('PROXY_TO_TEST_HOST') and not os.getenv('IS_TEST_ENV'):
 
 
 @app.route('/session_test', methods=['GET'])
-def echo_session_vars_test():
+@app.route('/session_test', methods=['GET'], subdomain="<language>")
+def echo_session_vars_test(language="en"):
     if not utils.is_testing_request(request):
         return make_response(gettext("request_invalid"), 400)
     return make_response({'session': dict(session)})
 
 
+@app.route('/session_main', methods=['GET'], subdomain="<language>")
 @app.route('/session_main', methods=['GET'])
-def echo_session_vars_main():
+def echo_session_vars_main(language="en"):
     if not utils.is_testing_request(request):
         return make_response(gettext("request_invalid"), 400)
     return make_response({'session': dict(session),
                           'proxy_enabled': bool(os.getenv('PROXY_TO_TEST_HOST'))})
 
 
+@app.route('/parse', methods=['POST'], subdomain="<language>")
 @app.route('/parse', methods=['POST'])
 @querylog.timed_as('parse_handler')
-def parse():
+def parse(language="en"):
     body = request.json
     if not body:
         return make_response(gettext("request_invalid"), 400)
@@ -711,9 +756,10 @@ def parse():
     return make_response(response, 200)
 
 
+@app.route('/parse-by-id', methods=['POST'], subdomain="<language>")
 @app.route('/parse-by-id', methods=['POST'])
 @requires_login
-def parse_by_id(user):
+def parse_by_id(user, language="en"):
     body = request.json
     # Validations
     if not isinstance(body, dict):
@@ -736,9 +782,10 @@ def parse_by_id(user):
         return make_response(gettext("request_invalid"), 400)
 
 
+@app.route('/parse_tutorial', methods=['POST'], subdomain="<language>")
 @app.route('/parse_tutorial', methods=['POST'])
 @requires_login
-def parse_tutorial(user):
+def parse_tutorial(user, language="en"):
     body = request.json
 
     code = body['code']
@@ -751,8 +798,9 @@ def parse_tutorial(user):
         return make_response(gettext("request_invalid"), 400)
 
 
+@app.route("/generate_machine_files", methods=['POST'], subdomain="<language>")
 @app.route("/generate_machine_files", methods=['POST'])
-def prepare_files():
+def prepare_files(language="en"):
     body = request.json
     # Prepare the file -> return the "secret" filename as response
     transpiled_code = hedy.transpile(body.get("code"), body.get("level"), body.get("lang"))
@@ -797,8 +845,9 @@ def prepare_files():
     return make_response({'filename': filename}, 200)
 
 
+@app.route("/download_machine_files/<filename>", methods=['GET'], subdomain="<language>")
 @app.route("/download_machine_files/<filename>", methods=['GET'])
-def download_machine_file(filename, extension="zip"):
+def download_machine_file(filename, extension="zip", language="en"):
     # https://stackoverflow.com/questions/24612366/delete-an-uploaded-file-after-downloading-it-from-flask
 
     # Once the file is downloaded -> remove it
@@ -818,8 +867,9 @@ def download_machine_file(filename, extension="zip"):
 MICROBIT_FEATURE = False
 
 
+@app.route('/generate_microbit_files', methods=['POST'], subdomain="<language>")
 @app.route('/generate_microbit_files', methods=['POST'])
-def generate_microbit_file():
+def generate_microbit_file(language="en"):
     if MICROBIT_FEATURE:
         # Extract variables from request body
         body = request.json
@@ -866,8 +916,9 @@ def save_transpiled_code_for_microbit(transpiled_python_code):
         file.write(processed_code)
 
 
+@app.route('/download_microbit_files/', methods=['GET'], subdomain="<language>")
 @app.route('/download_microbit_files/', methods=['GET'])
-def convert_to_hex_and_download():
+def convert_to_hex_and_download(language="en"):
     if MICROBIT_FEATURE:
         flash_micro_bit()
         current_directory = os.path.dirname(os.path.abspath(__file__))
@@ -920,8 +971,9 @@ def hedy_error_to_response(ex):
     }
 
 
+@app.route('/report_error', methods=['POST'], subdomain="<language>")
 @app.route('/report_error', methods=['POST'])
-def report_error():
+def report_error(language="en"):
     post_body = request.json
 
     parse_logger.log({
@@ -938,8 +990,9 @@ def report_error():
     return 'logged'
 
 
+@app.route('/client_exception', methods=['POST'], subdomain="<language>")
 @app.route('/client_exception', methods=['POST'])
-def report_client_exception():
+def report_client_exception(language="en"):
     post_body = request.json
 
     querylog.log_value(
@@ -955,8 +1008,9 @@ def report_client_exception():
     return 'logged', 500
 
 
+@app.route('/version', methods=['GET'], subdomain="<language>")
 @app.route('/version', methods=['GET'])
-def version_page():
+def version_page(language="en"):
     """
     Generate a page with some diagnostic information and a useful GitHub URL on upcoming changes.
 
@@ -977,8 +1031,9 @@ def version_page():
                            commit=commit)
 
 
+@app.route('/commands/<id>', subdomain="<language>")
 @app.route('/commands/<id>')
-def all_commands(id):
+def all_commands(id, language="en"):
     program = DATABASE.program_by_id(id)
     code = program.get('code')
     level = program.get('level')
@@ -988,9 +1043,10 @@ def all_commands(id):
         commands=hedy.all_commands(code, level, lang))
 
 
+@app.route('/programs', methods=['GET'], subdomain="<language>")
 @app.route('/programs', methods=['GET'])
 @requires_login_redirect
-def programs_page(user):
+def programs_page(user, language="en"):
     username = user['username']
     if not username:
         # redirect users to /login if they are not logged in
@@ -1099,8 +1155,9 @@ def programs_page(user):
         user_program_count=len(programs))
 
 
+@app.route('/logs/query', methods=['POST'], subdomain="<language>")
 @app.route('/logs/query', methods=['POST'])
-def query_logs():
+def query_logs(language="en"):
     user = current_user()
     if not is_admin(user) and not is_teacher(user):
         return utils.error_page(error=401, ui_message=gettext('unauthorized'))
@@ -1125,8 +1182,9 @@ def query_logs():
     return make_response(response, 200)
 
 
+@app.route('/logs/results', methods=['GET'], subdomain="<language>")
 @app.route('/logs/results', methods=['GET'])
-def get_log_results():
+def get_log_results(language="en"):
     query_execution_id = request.args.get(
         'query_execution_id', default=None, type=str)
     next_token = request.args.get('next_token', default=None, type=str)
@@ -1141,8 +1199,9 @@ def get_log_results():
     return make_response(response, 200)
 
 
+@app.route('/tutorial', methods=['GET'], subdomain="<language>")
 @app.route('/tutorial', methods=['GET'])
-def tutorial_index():
+def tutorial_index(language="en"):
     if not current_user()['username']:
         return redirect('/login')
     level = 1
@@ -1184,9 +1243,10 @@ def tutorial_index():
         ))
 
 
+@app.route('/teacher-tutorial', methods=['GET'], subdomain="<language>")
 @app.route('/teacher-tutorial', methods=['GET'])
 @requires_teacher
-def teacher_tutorial(user):
+def teacher_tutorial(user, language="en"):
     teacher_classes = DATABASE.get_teacher_classes(user['username'], True)
     adventures = []
     for adventure in DATABASE.get_teacher_adventures(user['username']):
@@ -1213,9 +1273,11 @@ def teacher_tutorial(user):
 # routing to index.html
 
 
+@app.route('/hour-of-code/<int:level>', methods=['GET'], subdomain="<language>")
 @app.route('/hour-of-code/<int:level>', methods=['GET'])
+@app.route('/hour-of-code', methods=['GET'], defaults={'level': 1}, subdomain="<language>")
 @app.route('/hour-of-code', methods=['GET'], defaults={'level': 1})
-def hour_of_code(level, program_id=None):
+def hour_of_code(level, program_id=None, language="en"):
     try:
         level = int(level)
         if level < 1 or level > hedy.HEDY_MAX_LEVEL:
@@ -1388,13 +1450,19 @@ def hour_of_code(level, program_id=None):
 # routing to index.html
 
 
+@app.route('/ontrack', methods=['GET'], defaults={'level': '1', 'program_id': None}, subdomain="<language>")
 @app.route('/ontrack', methods=['GET'], defaults={'level': '1', 'program_id': None})
+@app.route('/onlinemasters', methods=['GET'], defaults={'level': '1', 'program_id': None}, subdomain="<language>")
 @app.route('/onlinemasters', methods=['GET'], defaults={'level': '1', 'program_id': None})
+@app.route('/onlinemasters/<int:level>', methods=['GET'], defaults={'program_id': None}, subdomain="<language>")
 @app.route('/onlinemasters/<int:level>', methods=['GET'], defaults={'program_id': None})
+@app.route('/hedy', methods=['GET'], defaults={'program_id': None, 'level': '1'}, subdomain="<language>")
 @app.route('/hedy', methods=['GET'], defaults={'program_id': None, 'level': '1'})
+@app.route('/hedy/<int:level>', methods=['GET'], defaults={'program_id': None}, subdomain="<language>")
 @app.route('/hedy/<int:level>', methods=['GET'], defaults={'program_id': None})
+@app.route('/hedy/<int:level>/<program_id>', methods=['GET'], subdomain="<language>")
 @app.route('/hedy/<int:level>/<program_id>', methods=['GET'])
-def index(level, program_id):
+def index(level, program_id, language='en'):
     try:
         level = int(level)
         if level < 1 or level > hedy.HEDY_MAX_LEVEL:
@@ -1622,10 +1690,13 @@ def index(level, program_id):
         ))
 
 
+@app.route('/tryit', methods=['GET'], defaults={'program_id': None, 'level': '1'}, subdomain="<language>")
 @app.route('/tryit', methods=['GET'], defaults={'program_id': None, 'level': '1'})
+@app.route('/tryit/<int:level>', methods=['GET'], defaults={'program_id': None}, subdomain="<language>")
 @app.route('/tryit/<int:level>', methods=['GET'], defaults={'program_id': None})
+@app.route('/tryit/<int:level>/<program_id>', methods=['GET'], subdomain="<language>")
 @app.route('/tryit/<int:level>/<program_id>', methods=['GET'])
-def tryit(level, program_id):
+def tryit(level, program_id, language='en'):
     try:
         level = int(level)
         if level < 1 or level > hedy.HEDY_MAX_LEVEL:
@@ -1853,8 +1924,9 @@ def tryit(level, program_id):
         ))
 
 
+@app.route('/hedy', methods=['GET'], subdomain="<language>")
 @app.route('/hedy', methods=['GET'])
-def index_level():
+def index_level(language="en"):
     if current_user()['username']:
         highest_quiz = get_highest_quiz_level(current_user()['username'])
         # This function returns the character '-' in case there are no finished quizes
@@ -1869,9 +1941,10 @@ def index_level():
         return index(1, None)
 
 
+@app.route('/hedy/<id>/view', methods=['GET'], subdomain="<language>")
 @app.route('/hedy/<id>/view', methods=['GET'])
 @requires_login
-def view_program(user, id):
+def view_program(user, id, language="en"):
     result = DATABASE.program_by_id(id)
 
     if not result or not current_user_allowed_to_see_program(result):
@@ -1971,8 +2044,9 @@ def view_program(user, id):
                            **arguments_dict)
 
 
+@app.route('/render_code/<level>/', methods=['GET'], subdomain="<language>")
 @app.route('/render_code/<level>/', methods=['GET'])
-def render_code_in_editor(level):
+def render_code_in_editor(level, language="en"):
     code = request.args['code']
 
     try:
@@ -2014,10 +2088,13 @@ def render_code_in_editor(level):
                            ))
 
 
+@app.route('/adventure/<name>', methods=['GET'], defaults={'level': 1, 'mode': 'full'}, subdomain="<language>")
 @app.route('/adventure/<name>', methods=['GET'], defaults={'level': 1, 'mode': 'full'})
+@app.route('/adventure/<name>/<level>', methods=['GET'], defaults={'mode': 'full'}, subdomain="<language>")
 @app.route('/adventure/<name>/<level>', methods=['GET'], defaults={'mode': 'full'})
+@app.route('/adventure/<name>/<level>/<mode>', methods=['GET'], subdomain="<language>")
 @app.route('/adventure/<name>/<level>/<mode>', methods=['GET'])
-def get_specific_adventure(name, level, mode):
+def get_specific_adventure(name, level, mode, language="en"):
     try:
         level = int(level)
     except BaseException:
@@ -2096,8 +2173,9 @@ def get_specific_adventure(name, level, mode):
                            ))
 
 
+@app.route('/embedded/<int:level>', methods=['GET'], subdomain="<language>")
 @app.route('/embedded/<int:level>', methods=['GET'])
-def get_embedded_code_editor(level):
+def get_embedded_code_editor(level, language="en"):
     forget_current_user()
 
     # Start with an empty program
@@ -2149,9 +2227,11 @@ def get_embedded_code_editor(level):
                            ))
 
 
+@app.route('/cheatsheet/', methods=['GET'], defaults={'level': 1}, subdomain="<language>")
 @app.route('/cheatsheet/', methods=['GET'], defaults={'level': 1})
+@app.route('/cheatsheet/<level>', methods=['GET'], subdomain="<language>")
 @app.route('/cheatsheet/<level>', methods=['GET'])
-def get_cheatsheet_page(level):
+def get_cheatsheet_page(level, language="en"):
     try:
         level = int(level)
         if level < 1 or level > hedy.HEDY_MAX_LEVEL:
@@ -2164,8 +2244,9 @@ def get_cheatsheet_page(level):
     return render_template("printable/cheatsheet.html", commands=commands, level=level)
 
 
+@app.route('/certificate/<username>', methods=['GET'], subdomain="<language>")
 @app.route('/certificate/<username>', methods=['GET'])
-def get_certificate_page(username):
+def get_certificate_page(username, language="en"):
     if not current_user()['username']:
         return utils.error_page(error=401, ui_message=gettext('unauthorized'))
     username = username.lower()
@@ -2220,22 +2301,25 @@ def internal_error(exception):
     return utils.error_page(error=500, exception=exception)
 
 
+@app.route('/signup', methods=['GET'], subdomain="<language>")
 @app.route('/signup', methods=['GET'])
-def signup_page():
+def signup_page(language="en"):
     if current_user()['username']:
         return redirect('/my-profile')
     return render_template('signup.html', page_title=gettext('title_signup'), current_page='login')
 
 
+@app.route('/login', methods=['GET'], subdomain="<language>")
 @app.route('/login', methods=['GET'])
-def login_page():
+def login_page(language="en"):
     if current_user()['username']:
         return redirect('/my-profile')
     return render_template('login.html', page_title=gettext('title_login'), current_page='login')
 
 
+@app.route('/recover', methods=['GET'], subdomain="<language>")
 @app.route('/recover', methods=['GET'])
-def recover_page():
+def recover_page(language="en"):
     if current_user()['username']:
         return redirect('/my-profile')
     return render_template(
@@ -2244,8 +2328,9 @@ def recover_page():
         current_page='login')
 
 
+@app.route('/reset', methods=['GET'], subdomain="<language>")
 @app.route('/reset', methods=['GET'])
-def reset_page():
+def reset_page(language="en"):
     # If there is a user logged in -> don't allow password reset
     if current_user()['username']:
         return redirect('/my-profile')
@@ -2265,9 +2350,10 @@ def reset_page():
         current_page='login')
 
 
+@app.route('/my-profile', methods=['GET'], subdomain="<language>")
 @app.route('/my-profile', methods=['GET'])
 @requires_login_redirect
-def profile_page(user):
+def profile_page(user, language="en"):
     profile = DATABASE.user_by_username(user['username'])
     programs = DATABASE.filtered_programs_for_user(user['username'], public=True)
     public_profile_settings = DATABASE.get_public_profile_settings(current_user()['username'])
@@ -2290,6 +2376,7 @@ def profile_page(user):
     else:
         session['messages'] = 0
 
+    lang = make_lang_obj(profile.get('language', 'en'))
     return render_template(
         'profile.html',
         page_title=gettext('title_my-profile'),
@@ -2299,24 +2386,29 @@ def profile_page(user):
         public_settings=public_profile_settings,
         user_classes=classes,
         current_page='my-profile',
+        lang=lang,
         javascript_page_options=dict(
             page='my-profile',
         ))
 
 
+@app.route('/research/<filename>', methods=['GET'], subdomain="<language>")
 @app.route('/research/<filename>', methods=['GET'])
-def get_research(filename):
+def get_research(filename, language="en"):
     return send_from_directory('content/research/', filename)
 
 
+@app.route('/favicon.ico', subdomain="<language>")
 @app.route('/favicon.ico')
-def favicon():
+def favicon(language="en"):
     abort(404)
 
 
+@app.route('/', subdomain="<language>")
 @app.route('/')
+@app.route('/index.html', subdomain="<language>")
 @app.route('/index.html')
-def main_page():
+def main_page(language="en"):
     sections = hedyweb.PageTranslations('start').get_page_translations(g.lang)['home-sections']
     sections = sections[:]
 
@@ -2356,13 +2448,15 @@ def main_page():
                            current_page='start', content=content, user=user)
 
 
+@app.route('/subscribe', subdomain="<language>")
 @app.route('/subscribe')
-def subscribe():
+def subscribe(language="en"):
     return render_template('subscribe.html', current_page='subscribe')
 
 
+@app.route('/learn-more', subdomain="<language>")
 @app.route('/learn-more')
-def learn_more():
+def learn_more(language="en"):
     learn_more_translations = hedyweb.PageTranslations('learn-more').get_page_translations(g.lang)
     return render_template(
         'learn-more.html',
@@ -2372,34 +2466,39 @@ def learn_more():
         content=learn_more_translations)
 
 
+@app.route('/join', subdomain="<language>")
 @app.route('/join')
-def join():
+def join(language="en"):
     join_translations = hedyweb.PageTranslations('join').get_page_translations(g.lang)
     return render_template('join.html', page_title=gettext('title_learn-more'),
                            current_page='join', content=join_translations)
 
 
+@app.route('/kerndoelen', subdomain="<language>")
 @app.route('/kerndoelen')
-def poster():
+def poster(language="en"):
     return send_from_directory('content/', 'kerndoelenposter.pdf')
 
 
+@app.route('/start', subdomain="<language>")
 @app.route('/start')
-def start():
+def start(language="en"):
     start_translations = hedyweb.PageTranslations('start').get_page_translations(g.lang)
     return render_template('start.html', page_title=gettext('title_learn-more'),
                            current_page='start', content=start_translations)
 
 
+@app.route('/privacy', subdomain="<language>")
 @app.route('/privacy')
-def privacy():
+def privacy(language="en"):
     privacy_translations = hedyweb.PageTranslations('privacy').get_page_translations(g.lang)
     return render_template('privacy.html', page_title=gettext('title_privacy'),
                            content=privacy_translations)
 
 
+@app.route('/explore', methods=['GET'], subdomain="<language>")
 @app.route('/explore', methods=['GET'])
-def explore():
+def explore(language="en"):
     if not current_user()['username']:
         return redirect('/login')
 
@@ -2487,8 +2586,9 @@ def pre_process_explore_program(program):
     return program
 
 
+@app.route('/change_language', methods=['POST'], subdomain="<language>")
 @app.route('/change_language', methods=['POST'])
-def change_language():
+def change_language(language="en"):
     body = request.json
     session['lang'] = body.get('lang')
     # Remove 'keyword_lang' from session, it will automatically be renegotiated from 'lang'
@@ -2498,9 +2598,11 @@ def change_language():
     return jsonify({'success': 204})
 
 
+@app.route('/slides', methods=['GET'], defaults={'level': '1'}, subdomain="<language>")
 @app.route('/slides', methods=['GET'], defaults={'level': '1'})
+@app.route('/slides/<level>', methods=['GET'], subdomain="<language>")
 @app.route('/slides/<level>', methods=['GET'])
-def get_slides(level):
+def get_slides(level, language="en"):
     # In case of a "forced keyword language" -> load that one, otherwise: load
     # the one stored in the g object
 
@@ -2518,8 +2620,9 @@ def get_slides(level):
     return render_template('slides.html', level=level, slides=slides)
 
 
+@app.route('/translate_keywords', methods=['POST'], subdomain="<language>")
 @app.route('/translate_keywords', methods=['POST'])
-def translate_keywords():
+def translate_keywords(language="en"):
     body = request.json
     try:
         translated_code = hedy_translation.translate_keywords(body.get('code'), body.get(
@@ -2535,8 +2638,9 @@ def translate_keywords():
 
 
 # TODO TB: Think about changing this to sending all steps to the front-end at once
+@app.route('/get_tutorial_step/<level>/<step>', methods=['GET'], subdomain="<language>")
 @app.route('/get_tutorial_step/<level>/<step>', methods=['GET'])
-def get_tutorial_translation(level, step):
+def get_tutorial_translation(level, step, language="en"):
     # Keep this structure temporary until we decide on a nice code / parse structure
     if step == "code_snippet":
         code = hedy_content.deep_translate_keywords(gettext('tutorial_code_snippet'), g.keyword_lang)
@@ -2553,8 +2657,9 @@ def get_tutorial_translation(level, step):
     return make_response((data), 200)
 
 
+@app.route('/store_parsons_order', methods=['POST'], subdomain="<language>")
 @app.route('/store_parsons_order', methods=['POST'])
-def store_parsons_order():
+def store_parsons_order(language="en"):
     body = request.json
     # Validations
     if not isinstance(body, dict):
@@ -2786,13 +2891,15 @@ def get_user_messages():
 app.add_template_global(utils.prepare_content_for_ckeditor, name="prepare_content_for_ckeditor")
 
 
+@app.route('/translating', subdomain="<language>")
 @app.route('/translating')
-def translating_page():
+def translating_page(language="en"):
     return render_template('translating.html')
 
 
+@app.route('/update_yaml', methods=['POST'], subdomain="<language>")
 @app.route('/update_yaml', methods=['POST'])
-def update_yaml():
+def update_yaml(language="en"):
     filename = path.join('coursedata', request.form['file'])
     # The file MUST point to something inside our 'coursedata' directory
     filepath = path.abspath(filename)
@@ -2812,8 +2919,9 @@ def update_yaml():
                     headers={'Content-disposition': 'attachment; filename=' + request.form['file'].replace('/', '-')})
 
 
+@app.route('/user/<username>', subdomain="<language>")
 @app.route('/user/<username>')
-def public_user_page(username):
+def public_user_page(username, language="en"):
     if not current_user()['username']:
         return utils.error_page(error=401, ui_message=gettext('unauthorized'))
     username = username.lower()
@@ -2909,8 +3017,9 @@ def valid_invite_code(code):
     return code in valid_codes
 
 
+@app.route('/invite/<code>', methods=['GET'], subdomain="<language>")
 @app.route('/invite/<code>', methods=['GET'])
-def teacher_invitation(code):
+def teacher_invitation(code, language="en"):
     user = current_user()
 
     if not valid_invite_code(code):
@@ -3095,7 +3204,12 @@ if __name__ == '__main__':
         on_offline_mode()
 
     on_server_start()
-
+    app.config.update(
+        SERVER_NAME=config['domain_name'],
+        SESSION_COOKIE_DOMAIN=config['domain_name'],
+        SESSION_COOKIE_SAMESITE="Strict",
+        SESSION_COOKIE_NAME="n_session"
+    )
     # Set some default environment variables for development mode
     env_defaults = dict(
         BASE_URL=f"http://localhost:{config['port']}/",

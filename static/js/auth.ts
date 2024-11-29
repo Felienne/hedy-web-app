@@ -2,6 +2,7 @@ import { modal, tryCatchPopup } from './modal';
 import { join_class } from './teachers';
 import { localLoadOnce, localSave } from './local';
 import { postNoResponse, postJson } from './comm';
+import { theDomainName } from './app';
 
 const REDIRECT_AFTER_LOGIN_KEY = 'login-redirect';
 
@@ -49,13 +50,22 @@ function convertFormJSON(form: JQuery<HTMLElement>) {
   return result;
 }
 
-function redirect(where: string) {
-  where = '/' + where;
-  window.location.pathname = where;
+function redirect(where: string, lang?: string) {
+  if (lang === undefined) {
+    location.pathname = '/' + where
+    return
+  }  
+  if (/^localhost:\d\d\d\d|(\d+\.\d+\.\d+\.\d+:\d\d\d\d)$/.test(theDomainName)) {
+    window.location.href = `http://${theDomainName}/${where}?lang=${lang}`
+    return
+  } else { // We want a full redirect, including the subdomain
+    const protocol = location.protocol
+    window.location.href = `${protocol}//${lang}.${theDomainName}/${where}`;
+    return
+  }
 }
 
 // *** User POST without data ***
-
 export async function logout() {
   await postNoResponse('/auth/logout');
   window.location.reload();
@@ -93,7 +103,7 @@ export function initializeFormSubmits() {
     tryCatchPopup(async () => {
       const body = convertFormJSON($(this))
       await postNoResponse('/auth/signup', body);      
-      afterLogin({"first_time": true, "is_teacher": "is_teacher" in body});
+      afterLogin({"first_time": true, "teacher": "is_teacher" in body, "lang": body["language"] || "en"});
     });
   });
 
@@ -102,9 +112,13 @@ export function initializeFormSubmits() {
     tryCatchPopup(async () => {
       const response = await postJson('/auth/login', convertFormJSON($(this)));
       if (response['first_time']) {
-        return afterLogin({"first_time": true});
+        return afterLogin({"first_time": true, "lang": response["lang"]});
       }
-      return afterLogin({"admin": response['admin'] || false, "teacher": response['teacher']} || false);
+      return afterLogin({
+        "admin": response['admin'] || false,
+        "teacher": response['teacher'] || false,
+        "lang": response["lang"]
+      });
     });
   });
 
@@ -114,7 +128,14 @@ export function initializeFormSubmits() {
       const response = await postJson('/profile', convertFormJSON($(this)));
       if (response.reload) {
         modal.notifySuccess(response.message, 2000);
-        setTimeout (function () {location.reload ()}, 2000);
+        setTimeout (function () {
+          if (response["new_lang"]) {
+            const new_lang = response["new_lang"]
+            location.href = `${location.protocol}//${new_lang}.${theDomainName}/my-profile`
+          } else {
+            location.reload ()
+          }
+        }, 2000);
       } else {
         modal.notifySuccess(response.message);
       }
@@ -247,10 +268,12 @@ export function update_user_tags() {
  * - Check if we were supposed to be joining a class. If so, join it.
  * - Otherwise redirect to "my programs".
  */
-async function afterLogin(loginData: Dict<boolean>) {
+async function afterLogin(loginData: Dict<boolean|string>) {
   const { url } = localLoadOnce(REDIRECT_AFTER_LOGIN_KEY) ?? {};
+  const userLang: string = loginData['lang']  as string
   if (url && !loginData['first_time']) {
-    window.location = url;
+    const urlObject = new URL(url);
+    window.location.href = `${urlObject.protocol}//${userLang}.${theDomainName}${urlObject.pathname}${urlObject.search !== ""  ? "?" + urlObject.search : ''}`;
     return;
   }
 
@@ -261,22 +284,21 @@ async function afterLogin(loginData: Dict<boolean>) {
     return join_class(joinClass.id, joinClass.name);
   }
 
-  // If the user logs in for the first time and is a teacher -> redirect to the for teacher page
-  if (loginData['first_time'] && loginData['is_teacher']) {
-    return redirect('for-teachers');
-  // If it's a student, send him to the first level
-  } else if(loginData['first_time'] && !loginData['is_teacher']) {
-    return redirect('hedy/1')
+  // If the user is a teacher, shend them to the teachers page
+  if (loginData['teacher']) {
+    redirect('for-teachers', userLang)   
+    return
+  // If it's a student, send them to the first level
+  } else if(loginData['first_time'] && !loginData['teacher']) {
+    redirect('hedy/1', userLang)
+    return
   }
   // If the user is an admin -> re-direct to admin page after login
   if (loginData['admin']) {
-    return redirect('admin');
+    redirect('admin', userLang)
+    return
   }
 
-  // If the user is a teacher -> re-direct to for-teachers page after login
-  if (loginData['teacher']) {
-    return redirect('for-teachers');
-  }
-  // Otherwise, redirect to the programs page
-  redirect('');
+  // Otherwise, redirect to the main page
+  redirect('', userLang);
 }

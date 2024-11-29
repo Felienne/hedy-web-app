@@ -82,9 +82,11 @@ class PublicAdventuresModule(WebsiteModule):
             self.customizations["available_levels"].update([int(adv_level) for adv_level in available_levels])
 
     @route("/", methods=["GET"])
+    @route("/", methods=["GET"], subdomain="<language>")
     @route("/filter", methods=["POST"])
+    @route("/filter", methods=["POST"], subdomain="<language>")
     @requires_teacher
-    def filtering(self, user, index_page=False):
+    def filtering(self, user, index_page=False, language="en"):
         index_page = request.method == "GET"
 
         level = int(request.args["level"]) if request.args.get("level") else 1
@@ -156,6 +158,7 @@ class PublicAdventuresModule(WebsiteModule):
             level=level,
             adventures=adventures,
             initial_tab='',
+            domainName=config['domain_name'],
             current_user_name=user['username'],
         )
 
@@ -196,8 +199,9 @@ class PublicAdventuresModule(WebsiteModule):
         return response
 
     @route("/clone/<adventure_id>", methods=["POST"])
+    @route("/clone/<adventure_id>", methods=["POST"], subdomain="<language>")
     @requires_teacher
-    def clone_adventure(self, user, adventure_id):
+    def clone_adventure(self, user, adventure_id, language="en"):
         # TODO: perhaps get it from self.adventures
         current_adventure = self.db.get_adventure(adventure_id)
         if not current_adventure:
@@ -259,8 +263,10 @@ class PublicAdventuresModule(WebsiteModule):
                 self.available_tags.update(adv_tags)
 
     @route("/flag/<adventure_id>", methods=["POST"])
+    @route("/flag/<adventure_id>", methods=["POST"], subdomain="<language>")
     @route("/flag/<adventure_id>/<flagged>", methods=["POST"])
+    @route("/flag/<adventure_id>/<flagged>", methods=["POST"], subdomain="<language>")
     @requires_teacher
-    def flag_adventure(self, user, adventure_id, flagged=None):
+    def flag_adventure(self, user, adventure_id, flagged=None, language="en"):
         self.db.update_adventure(adventure_id, {"flagged": 0 if int(flagged) else 1})
         return gettext("adventure_flagged"), 200

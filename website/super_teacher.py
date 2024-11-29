@@ -1,6 +1,6 @@
 
 from flask import make_response, render_template, request
-from website.auth import requires_super_teacher, pick, is_teacher
+from website.auth import pick, is_teacher, requires_super_teacher
 import utils
 
 from .database import Database
@@ -13,13 +13,15 @@ class SuperTeacherModule(WebsiteModule):
         self.db = db
 
     @route("/", methods=["GET"])
+    @route("/", methods=["GET"], subdomain="<language>")
     @requires_super_teacher
-    def get_super_teacher_page(self, user):
+    def get_super_teacher_page(self, user, language="en"):
         return render_template('super-teacher/index.html')
 
     @route("/support", methods=["GET"])
+    @route("/support", methods=["GET"], subdomain="<language>")
     @requires_super_teacher
-    def get_support(self, user):
+    def get_support(self, user, language="en"):
         category = request.args.get("filter", default=None, type=str)
         category = None if category == "null" else category
 
@@ -110,8 +112,9 @@ class SuperTeacherModule(WebsiteModule):
         )
 
     @route("/invite-support", methods=["POST"])
+    @route("/invite-support", methods=["POST"], subdomain="<language>")
     @requires_super_teacher
-    def invite_support(self, user):
+    def invite_support(self, user, language="en"):
         body = request.json
         if not body.get("sourceUser"):
             return "Please provide a user who needs help", 400
@@ -143,7 +146,8 @@ class SuperTeacherModule(WebsiteModule):
         return make_response("Done", 200)
 
     @route("/tags", methods=["GET"])
+    @route("/tags", methods=["GET"], subdomain="<language>")
     @requires_super_teacher
-    def get_tags(self, user):
+    def get_tags(self, user, language="en"):
         all_tags = self.db.read_public_tags()
         return render_template('super-teacher/tags.html', tags=all_tags)

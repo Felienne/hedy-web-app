@@ -3,7 +3,7 @@ from difflib import SequenceMatcher
 import os
 import re
 import uuid
-
+from config import config
 from bs4 import BeautifulSoup
 from flask import g, make_response, request, session, url_for, redirect
 from jinja_partials import render_partial
@@ -46,8 +46,9 @@ class ForTeachersModule(WebsiteModule):
         self.auth = auth
 
     @route("/", methods=["GET"])
+    @route("/", methods=["GET"], subdomain="<language>")
     @requires_teacher
-    def for_teachers_page(self, user):
+    def for_teachers_page(self, user, language="en"):
         welcome_teacher = session.get("welcome-teacher") or False
         session.pop("welcome-teacher", None)
 
@@ -89,8 +90,9 @@ class ForTeachersModule(WebsiteModule):
                 welcome_teacher=welcome_teacher,
             ))
 
+    @route("/workbooks/<level>", methods=["GET"], subdomain="<language>")
     @route("/workbooks/<level>", methods=["GET"])
-    def get_workbooks(self, level):
+    def get_workbooks(self, level, language='en'):
         content = hedyweb.PageTranslations("workbooks").get_page_translations(g.lang)
         workbooks = content['workbooks']
         line = '_' * 30
@@ -158,9 +160,11 @@ class ForTeachersModule(WebsiteModule):
                                page_title=f'Workbook {level}',
                                workbook=workbook_for_level)
 
+    @route("/manual", methods=["GET"], defaults={'section_key': 'intro'}, subdomain="<language>")
     @route("/manual", methods=["GET"], defaults={'section_key': 'intro'})
     @route("/manual/<section_key>", methods=["GET"])
-    def get_teacher_manual(self, section_key):
+    @route("/manual/<section_key>", methods=["GET"], subdomain="<language>")
+    def get_teacher_manual(self, section_key, language="en"):
         content = hedyweb.PageTranslations("for-teachers").get_page_translations(g.lang)
 
         # Code very defensively around types here -- Weblate has a tendency to mess up the YAML,
@@ -201,8 +205,9 @@ class ForTeachersModule(WebsiteModule):
                                levels=levels)
 
     @route("/class/<class_id>", methods=["GET"])
+    @route("/class/<class_id>", methods=["GET"], subdomain="<language>")
     @requires_login
-    def get_class(self, user, class_id):
+    def get_class(self, user, class_id, language="en"):
         if not is_teacher(user) and not is_admin(user):
             return utils.error_page(error=401, ui_message=gettext("retrieve_class_error"))
         Class = self.db.get_class(class_id)
@@ -253,7 +258,7 @@ class ForTeachersModule(WebsiteModule):
             level=level,
             class_info={
                 "students": len(students),
-                "link": os.getenv("BASE_URL", "") + "/hedy/l/" + Class["link"],
+                "link": config['domain_name'] + "/hedy/l/" + Class["link"],
                 "teacher": Class["teacher"],
                 "second_teachers": second_teachers,
                 "name": Class["name"],
@@ -448,8 +453,9 @@ class ForTeachersModule(WebsiteModule):
         return re.search(r'(?<![^ \n])(_)(?= |$)', code, re.M) is not None
 
     @route("/check_adventure", methods=["POST"])
+    @route("/check_adventure", methods=["POST"], subdomain="<language>")
     @requires_login
-    def check_adventure(self, user):
+    def check_adventure(self, user, language="en"):
         level = request.args.get('level')
         student_name = request.args.get('student_name', type=str)
         adventure_name = request.args.get('adventure_name', type=str)
@@ -466,8 +472,9 @@ class ForTeachersModule(WebsiteModule):
         return make_response({'message': 'success'})
 
     @route("/grid_overview/<class_id>/change_checkbox", methods=["POST"])
+    @route("/grid_overview/<class_id>/change_checkbox", methods=["POST"], subdomain="<language>")
     @requires_login
-    def change_checkbox(self, user, class_id):
+    def change_checkbox(self, user, class_id, language="en"):
         level = request.args.get('level')
         student_name = request.args.get('student', type=str)
         adventure_name = request.args.get('adventure', type=str)
@@ -498,8 +505,9 @@ class ForTeachersModule(WebsiteModule):
                                              )
 
     @route("/class/<class_id>/remove_student_modal/<student_id>", methods=["GET"])
+    @route("/class/<class_id>/remove_student_modal/<student_id>", methods=["GET"], subdomain="<language>")
     @requires_teacher
-    def get_remove_student_modal(self, user, class_id, student_id):
+    def get_remove_student_modal(self, user, class_id, student_id, language="en"):
         level = request.args.get('level')
         Class = self.db.get_class(session['class_id'])
         if not Class or (not utils.can_edit_class(user, Class) and not is_admin(user)):
@@ -517,8 +525,9 @@ class ForTeachersModule(WebsiteModule):
                               hyperscript=hyperscript)
 
     @route("/class/<class_id>/remove_student/<student_id>", methods=["POST"])
+    @route("/class/<class_id>/remove_student/<student_id>", methods=["POST"], subdomain="<language>")
     @requires_login
-    def leave_class(self, user, class_id, student_id):
+    def leave_class(self, user, class_id, student_id, language="en"):
         # We use the level to redraw the adventure table in the level
         # the teacher was using before
         level = request.args.get('level')
@@ -551,8 +560,9 @@ class ForTeachersModule(WebsiteModule):
                                              )
 
     @route("/grid_overview/<class_id>/level", methods=["GET"])
+    @route("/grid_overview/<class_id>/level", methods=["GET"], subdomain="<language>")
     @requires_login
-    def change_dropdown_level_class_overview(self, user, class_id):
+    def change_dropdown_level_class_overview(self, user, class_id, language="en"):
         level = request.args.get('level')
         students, class_, class_adventures_formatted, \
             adventure_names, student_adventures, graph_students, students_info = self.get_grid_info(
@@ -579,8 +589,9 @@ class ForTeachersModule(WebsiteModule):
                                              )
 
     @route("/get_student_programs/<student>", methods=["GET"])
+    @route("/get_student_programs/<student>", methods=["GET"], subdomain="<language>")
     @requires_teacher
-    def show_students_programs(self, user, student):
+    def show_students_programs(self, user, student, language="en"):
         result = self.db.programs_for_user(student)
 
         if hedy_content.Adventures(g.lang).has_adventures():
@@ -622,8 +633,9 @@ class ForTeachersModule(WebsiteModule):
                                              )
 
     @route("/class/<class_id>/preview", methods=["GET"])
+    @route("/class/<class_id>/preview", methods=["GET"], subdomain="<language>")
     @requires_login
-    def preview_class_as_teacher(self, user, class_id):
+    def preview_class_as_teacher(self, user, class_id, language="en"):
         if not is_teacher(user) and not is_admin(user):
             return utils.error_page(error=401, ui_message=gettext("retrieve_class_error"))
         Class = self.db.get_class(class_id)
@@ -635,14 +647,16 @@ class ForTeachersModule(WebsiteModule):
         }
         return redirect("/hedy")
 
+    @route("/clear-preview-class", methods=["GET"], subdomain="<language>")
     @route("/clear-preview-class", methods=["GET"])
     # Note: we explicitly do not need login here, anyone can exit preview mode
-    def clear_preview_class(self):
+    def clear_preview_class(self, language="en"):
         utils.remove_class_preview()
         return redirect("/for-teachers")
 
     @route("/preview-teacher-mode", methods=["GET"])
-    def preview_teacher_mode(self):
+    @route("/preview-teacher-mode", methods=["GET"], subdomain="<language>")
+    def preview_teacher_mode(self, language="en"):
         id = uuid.uuid4().hex[:5]
         username = f"testteacher_{id}"
         user = self.db.user_by_username(username)
@@ -667,14 +681,16 @@ class ForTeachersModule(WebsiteModule):
         return redirect("/for-teachers")
 
     @route("/exit-preview-teacher-mode", methods=["GET"])
+    @route("/exit-preview-teacher-mode", methods=["GET"], subdomain="<language>")
     # Note: we explicitly do not need login here, anyone can exit preview mode
-    def exit_teacher_mode(self):
+    def exit_teacher_mode(self, language="en"):
         self.auth.logout()
         return redirect("/hedy")
 
     @route("/class/<class_id>/programs/<username>", methods=["GET", "POST"])
+    @route("/class/<class_id>/programs/<username>", methods=["GET", "POST"], subdomain="<language>")
     @requires_teacher
-    def public_programs(self, user, class_id, username):
+    def public_programs(self, user, class_id, username, language="en"):
         Class = self.db.get_class(class_id)
         if not Class:
             return utils.error_page(error=404, ui_message=gettext("no_such_class"))
@@ -746,8 +762,9 @@ class ForTeachersModule(WebsiteModule):
             second_teachers_programs=True)
 
     @route("/customize-class/<class_id>", methods=["GET"])
+    @route("/customize-class/<class_id>", methods=["GET"], subdomain="<language>")
     @requires_login
-    def get_class_customization_page(self, user, class_id):
+    def get_class_customization_page(self, user, class_id, language="en"):
         if not is_teacher(user) and not is_admin(user):
             return utils.error_page(error=401, ui_message=gettext("retrieve_class_error"))
         Class = self.db.get_class(class_id)
@@ -779,7 +796,8 @@ class ForTeachersModule(WebsiteModule):
             ))
 
     @route("/load-survey/<class_id>", methods=["POST"])
-    def load_survey(self, class_id):
+    @route("/load-survey/<class_id>", methods=["POST"], subdomain="<language>")
+    def load_survey(self, class_id, language="en"):
         survey_id, description, questions, total_questions, survey_later = self.class_survey(class_id)
         return render_partial('htmx-survey.html', survey_id=survey_id, description=description,
                               questions=questions, survey_later=survey_later, click='yes')
@@ -809,8 +827,9 @@ class ForTeachersModule(WebsiteModule):
         return survey_id, description, unanswered_questions, total_questions, survey_later
 
     @route("/get-customization-level", methods=["GET"])
+    @route("/get-customization-level", methods=["GET"], subdomain="<language>")
     @requires_login
-    def change_dropdown_level(self, user):
+    def change_dropdown_level(self, user, language="en"):
         if not is_teacher(user) and not is_admin(user):
             return utils.error_page(error=401, ui_message=gettext("retrieve_class_error"))
         Class = self.db.get_class(session['class_id'])
@@ -851,8 +870,9 @@ class ForTeachersModule(WebsiteModule):
             adventures.append(quiz_adv)
 
     @route("/add-adventure/level/<level>", methods=["POST"])
+    @route("/add-adventure/level/<level>", methods=["POST"], subdomain="<language>")
     @requires_login
-    def add_adventure(self, user, level):
+    def add_adventure(self, user, level, language="en"):
         if not is_teacher(user) and not is_admin(user):
             return utils.error_page(error=401, ui_message=gettext("retrieve_class_error"))
         Class = self.db.get_class(session['class_id'])
@@ -900,8 +920,9 @@ class ForTeachersModule(WebsiteModule):
                               class_id=session['class_id'])
 
     @route("/remove-adventure", methods=["POST"])
+    @route("/remove-adventure", methods=["POST"], subdomain="<language>")
     @requires_login
-    def remove_adventure_from_class(self, user):
+    def remove_adventure_from_class(self, user, language="en"):
         if not is_teacher(user) and not is_admin(user):
             return utils.error_page(error=401, ui_message=gettext("retrieve_class_error"))
         Class = self.db.get_class(session['class_id'])
@@ -937,8 +958,9 @@ class ForTeachersModule(WebsiteModule):
                               class_id=session['class_id'])
 
     @route("/sort-adventures", methods=["POST"])
+    @route("/sort-adventures", methods=["POST"], subdomain="<language>")
     @requires_login
-    def sort_adventures_in_class(self, user):
+    def sort_adventures_in_class(self, user, language="en"):
         if not is_teacher(user) and not is_admin(user):
             return utils.error_page(error=401, ui_message=gettext("retrieve_class_error"))
         Class = self.db.get_class(session['class_id'])
@@ -1149,8 +1171,9 @@ class ForTeachersModule(WebsiteModule):
         return is_teacher_adventure
 
     @route("/restore-customizations", methods=["POST"])
+    @route("/restore-customizations", methods=["POST"], subdomain="<language>")
     @requires_teacher
-    def restore_customizations_to_default(self, user):
+    def restore_customizations_to_default(self, user, language="en"):
         class_id = session['class_id']
         level = request.args.get('level')
 
@@ -1205,8 +1228,9 @@ class ForTeachersModule(WebsiteModule):
                               class_id=session['class_id'])
 
     @route("/restore-adventures/level/<level>", methods=["POST"])
+    @route("/restore-adventures/level/<level>", methods=["POST"], subdomain="<language>")
     @requires_teacher
-    def restore_adventures_to_default(self, user, level):
+    def restore_adventures_to_default(self, user, level, language="en"):
         class_id = session['class_id']
         Class = self.db.get_class(class_id)
 
@@ -1246,8 +1270,9 @@ class ForTeachersModule(WebsiteModule):
                               class_id=session['class_id'])
 
     @route("/restore-adventures-modal/level/<level>", methods=["GET"])
+    @route("/restore-adventures-modal/level/<level>", methods=["GET"], subdomain="<language>")
     @requires_teacher
-    def get_restore_adventures_modal(self, user, level):
+    def get_restore_adventures_modal(self, user, level, language="en"):
         Class = self.db.get_class(session['class_id'])
         if not Class or (not utils.can_edit_class(user, Class) and not is_admin(user)):
             return utils.error_page(error=404, ui_message=gettext("no_such_class"))
@@ -1265,8 +1290,9 @@ class ForTeachersModule(WebsiteModule):
                               htmx_indicator=htmx_indicator)
 
     @route("/customize-class/<class_id>", methods=["POST"])
+    @route("/customize-class/<class_id>", methods=["POST"], subdomain="<language>")
     @requires_teacher
-    def update_customizations(self, user, class_id):
+    def update_customizations(self, user, class_id, language="en"):
         Class = self.db.get_class(class_id)
         if not Class or (not utils.can_edit_class(user, Class) and not is_admin(user)):
             return utils.error_page(error=404, ui_message=gettext("no_such_class"))
@@ -1349,8 +1375,9 @@ class ForTeachersModule(WebsiteModule):
         return make_response(response, 200)
 
     @route("/create-accounts/<class_id>", methods=["GET"])
+    @route("/create-accounts/<class_id>", methods=["GET"], subdomain="<language>")
     @requires_teacher
-    def create_accounts(self, user, class_id):
+    def create_accounts(self, user, class_id, language="en"):
         Class = self.db.get_class(class_id)
         if not Class:
             return utils.error_page(error=404, ui_message=gettext("no_such_class"))
@@ -1363,8 +1390,9 @@ class ForTeachersModule(WebsiteModule):
             javascript_page_options=dict(page='create-accounts'))
 
     @route("/create-accounts", methods=["POST"])
+    @route("/create-accounts", methods=["POST"], subdomain="<language>")
     @requires_teacher
-    def store_accounts(self, user):
+    def store_accounts(self, user, language="en"):
         body = request.json
 
         # Validations
@@ -1477,8 +1505,9 @@ class ForTeachersModule(WebsiteModule):
         return correct_lines, incorrect_lines
 
     @route("/customize-adventure/view/<adventure_id>", methods=["GET"])
+    @route("/customize-adventure/view/<adventure_id>", methods=["GET"], subdomain="<language>")
     @requires_login
-    def view_adventure(self, user, adventure_id):
+    def view_adventure(self, user, adventure_id, language="en"):
         if not is_teacher(user) and not is_admin(user):
             return utils.error_page(error=401, ui_message=gettext("retrieve_adventure_error"))
         adventure = self.db.get_adventure(adventure_id)
@@ -1518,8 +1547,9 @@ class ForTeachersModule(WebsiteModule):
         }
 
     @route("/customize-adventure", methods=["GET"])
+    @route("/customize-adventure", methods=["GET"], subdomain="<language>")
     @requires_teacher
-    def get_new_adventure(self, user):
+    def get_new_adventure(self, user, language="en"):
         class_id = request.args.get("class_id")
         level = request.args.get("level", "1")
 
@@ -1538,8 +1568,9 @@ class ForTeachersModule(WebsiteModule):
         return redirect(f"/for-teachers/customize-adventure/{adventure['id']}?new_adventure=1")
 
     @route("/customize-adventure/<adventure_id>", methods=["GET"])
+    @route("/customize-adventure/<adventure_id>", methods=["GET"], subdomain="<language>")
     @requires_teacher
-    def get_adventure_info(self, user, adventure_id,):
+    def get_adventure_info(self, user, adventure_id, language="en"):
         if not adventure_id:
             return make_response(gettext("adventure_empty"), 400)
         if not isinstance(adventure_id, str):
@@ -1608,8 +1639,9 @@ class ForTeachersModule(WebsiteModule):
         )
 
     @route("/customize-adventure", methods=["POST"])
+    @route("/customize-adventure", methods=["POST"], subdomain="<language>")
     @requires_teacher
-    def update_adventure(self, user):
+    def update_adventure(self, user, language="en"):
         body = request.json
 
         # Validations
@@ -1702,9 +1734,11 @@ class ForTeachersModule(WebsiteModule):
         return make_response({"success": gettext("adventure_updated")}, 200)
 
     @route("/customize-adventure/<adventure_id>", methods=["DELETE"])
+    @route("/customize-adventure/<adventure_id>", methods=["DELETE"], subdomain="<language>")
     @route("/customize-adventure/<adventure_id>/<owner>", methods=["DELETE"])
+    @route("/customize-adventure/<adventure_id>/<owner>", methods=["DELETE"], subdomain="<language>")
     @requires_teacher
-    def delete_adventure(self, user, adventure_id, owner=None):
+    def delete_adventure(self, user, adventure_id, owner=None, language="en"):
         adventure = self.db.get_adventure(adventure_id)
         if not adventure:
             return utils.error_page(error=404, ui_message=gettext("retrieve_adventure_error"))
@@ -1740,7 +1774,8 @@ class ForTeachersModule(WebsiteModule):
         return render_partial('htmx-adventures-table.html', teacher_adventures=teacher_adventures)
 
     @route("/preview-adventure", methods=["POST"])
-    def parse_preview_adventure(self):
+    @route("/preview-adventure", methods=["POST"], subdomain="<language>")
+    def parse_preview_adventure(self, language="en"):
         body = request.json
         try:
             code = safe_format(body.get("code"), **hedy_content.KEYWORDS.get(g.keyword_lang))
@@ -1772,10 +1807,13 @@ class ForTeachersModule(WebsiteModule):
         self.db.update_class_customizations(customizations)
 
     @route("/create-adventure/", methods=["POST"])
+    @route("/create-adventure/", methods=["POST"], subdomain="<language>")
     @route("/create-adventure/<class_id>", methods=["POST"])
+    @route("/create-adventure/<class_id>", methods=["POST"], subdomain="<language>")
     @route("/create-adventure/<class_id>/<level>", methods=["POST"])
+    @route("/create-adventure/<class_id>/<level>", methods=["POST"], subdomain="<language>")
     @requires_teacher
-    def create_adventure(self, user, class_id=None, level=None):
+    def create_adventure(self, user, class_id=None, level=None, language="en"):
         if not is_teacher(user) and not is_admin(user):
             return utils.error_page(error=401, ui_message=gettext("retrieve_class_error"))
 
